@@ -1,6 +1,11 @@
 # 右机械臂操作单把双自由度水龙头
 
-使用本目录的 `dual_arm` 双臂机器人和 `single_lever_faucet` 水龙头，在 **conda 环境 `dexonomy-isaac`** 中运行 Python / Isaac Sim 仿真。仅右臂执行任务，左臂保持初始位置。不使用 RL、IL、神经网络或训练数据。
+新增：[头部较高固定相机 RGB-D 与 FoundationPose 快照接入说明](docs/foundationpose.md)。
+可导出相机数据、刚体网格，并以外部估计位姿初始化规划；在线视觉闭环尚未实现。
+使用 `bash run.sh --visual-pipeline --quit-on-complete` 可在同一次仿真中自动采集头部 RGB-D、
+运行已安装的 FoundationPose、校验并规划执行；当前分割仍使用仿真真值 mask。
+
+使用本目录的 `dual_arm` 双臂机器人和 `single_lever_faucet` 水龙头，在 **conda 环境 `dexonomy-isaac`** 中运行 Python / Isaac Sim 仿真。仅右臂执行任务，左臂保持初始位置。默认模式不使用 RL、IL、神经网络或训练数据；可选 FoundationPose 接入需要独立推理环境和预训练权重。
 
 默认流程：**初始位置 → 把手前方 → 沿把手长度方向接近 → 上下闭爪抓取 → 抬升开阀 → 左右调温 → 调整开度 → 居中关闭 → 松爪 → 撤离 → 返回初始位置**。机器人位于龙头出水嘴朝向的前方，右肩对齐龙头；初始抓取时手指开合沿世界 Z 方向。
 

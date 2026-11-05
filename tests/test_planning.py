@@ -48,6 +48,13 @@ class PlanningTests(unittest.TestCase):
         pivot = self.config['faucet_position'] + np.array([0, 0, .192])
         np.testing.assert_allclose(point - pivot, [-.075*np.cos(np.pi/6), 0, .075*.5], atol=1e-7)
 
+    def test_nonzero_visual_initial_state(self):
+        """视觉初始角必须真正改变抓取目标，不能仍然隐式按零位抓取。"""
+        initial = np.deg2rad([10., 5.])
+        segments = plan(self.config, self.robot, self.faucet, initial_valve=initial)
+        np.testing.assert_allclose(segments[0].faucet[0], initial)
+        np.testing.assert_allclose(segments[1].target[-1], self.faucet.target(*initial), atol=1e-7)
+
     def test_trajectory_and_limits(self):
         """每一段都连续、有限、在关节限位内，并符合指定最大速度。"""
         for index, segment in enumerate(self.segments):

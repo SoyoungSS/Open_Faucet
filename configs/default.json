@@ -5,9 +5,16 @@
   "robot_yaw_deg": -90.0,
   "faucet_position": [0.0, 0.0, 0.48],
   "faucet_yaw_deg": 0.0,
+  "head_camera": {
+    "resolution": [640, 480],
+    "focal_pixels": 460.0,
+    "position_in_mount": [0.0, 0.0, 0.002],
+    "optical_rpy_deg": [0.0, 0.0, 0.0]
+  },
   "home_right_deg": [0, -15, 0, 100, 0, -60, 0],
   "tcp_in_gripper": [0.0, -0.0045, -0.12],
   "grasp_in_handle": [0.0, 0.075, 0.0263],
+  "visual_grasp_clearance_m": 0.001,
   "gripper_rpy_in_handle_deg": [-90.0, 0.0, 0.0],
   "finger_open_deg": 12.0,
   "finger_closed_deg": 0.0,

@@ -22,7 +22,8 @@ from .collision import ContactMonitor
 class FaucetSimulation:
     """管理场景、规划、执行、测量和日志；机器人由位置驱动跟踪轨迹。"""
 
-    def __init__(self, app, config, output, headless=False, realtime=False, capture_frames=False):
+    def __init__(self, app, config, output, headless=False, realtime=False, capture_frames=False,
+                 pose_estimate=None, camera_only=False):
         """app 为已启动应用；output 是该次运行独立输出目录。"""
         self.app, self.config = app, config
         self.output = Path(output).resolve()
@@ -36,10 +37,21 @@ class FaucetSimulation:
             '/World/Robot/arm_base_link')), config['tcp_in_gripper'])
         self.faucet_model = FaucetKinematics(source, world_pose(source.GetPrimAtPath(
             '/World/Faucet/body')), config)
-        print('[规划] 开始检查完整轨迹', flush=True)
-        self.segments = plan(config, self.robot_model, self.faucet_model)
-        self.duration = save_plan(self.segments, self.output)
-        print(f'[规划] {len(self.segments)} 个阶段，{self.duration:.2f} 秒', flush=True)
+        initial_valve, self.perception_report = None, None
+        planning_faucet = self.faucet_model
+        if pose_estimate:
+            from .perception import apply_pose_estimate
+            planning_faucet = FaucetKinematics(source, np.eye(4), config)
+            initial_valve, self.perception_report = apply_pose_estimate(planning_faucet, pose_estimate)
+            # 快照模式只支持当前默认的初始关闭状态；任意初始状态需在线观测。
+            if np.max(np.abs(np.rad2deg(initial_valve))) > 3.:
+                raise ValueError('快照执行模式要求初始阀角接近零位（3°以内）；非零初始状态请先做离线规划')
+        self.segments, self.duration = [], 0.
+        if not camera_only:
+            print('[规划] 开始检查完整轨迹', flush=True)
+            self.segments = plan(config, self.robot_model, planning_faucet, initial_valve=initial_valve)
+            self.duration = save_plan(self.segments, self.output)
+            print(f'[规划] {len(self.segments)} 个阶段，{self.duration:.2f} 秒', flush=True)
         omni.usd.get_context().open_stage(str(self.output / 'scene.usda'))
         self.stage = omni.usd.get_context().get_stage()
         physics = PhysxSchema.PhysxSceneAPI.Apply(self.stage.GetPrimAtPath('/World/PhysicsScene'))
@@ -95,6 +107,18 @@ class FaucetSimulation:
         """所有阶段关闭龙头位置刚度，只保留配置中的被动阻尼。"""
         self.valve.get_articulation_controller().set_gains(kps=np.zeros(self.valve.num_dof),
                                                          kds=np.full(self.valve.num_dof, self.config['faucet_joint_damping']))
+
+    def prepare_visual_plan(self, filename):
+        """在本次相机观测后规划，不重建世界、不重新初始化物理状态。"""
+        from .perception import apply_pose_estimate
+        model = FaucetKinematics(self.stage, np.eye(4), self.config)
+        initial, report = apply_pose_estimate(model, filename)
+        if np.max(np.abs(np.rad2deg(initial))) > 3.:
+            raise ValueError('当前单帧流程要求初始关闭，估计阀角必须在 3°以内')
+        segments = plan(self.config, self.robot_model, model, initial_valve=initial)
+        self.duration = save_plan(segments, self.output)
+        self.segments, self.perception_report = segments, report
+        print(f'[视觉规划] {len(segments)} 个阶段，{self.duration:.2f} 秒', flush=True)
 
     def measured(self):
         """返回物理反馈：右臂七轴角度、龙头左右角和抬升角（弧度）。"""
@@ -162,12 +186,18 @@ class FaucetSimulation:
         row.update(self.contacts.last)
         row.update(self.grasp.observe(right, valve))
         self.records.append(row)
+        # 未完成夹持前出现毫米级阻塞时立即停止，避免继续接近把把手顶开。
+        if segment.kind in ('approach', 'grasp') and (position > .005 or rotation > np.deg2rad(5)):
+            raise RuntimeError(f'{segment.name} 接近受阻：TCP 偏差 {position*1000:.1f} mm / '
+                               f'{np.rad2deg(rotation):.1f}°，已停止，未进入开阀阶段')
         # 物理执行偏离规划时停止，避免把明显失败的动画当成完成。
         if position > .05 or rotation > np.deg2rad(20):
             raise RuntimeError(f'{segment.name} 跟踪误差过大：{position*1000:.1f} mm / {np.rad2deg(rotation):.1f}°')
 
     def execute(self):
         """执行完整流程；每次操作结束测量阀角误差并验收。"""
+        if not self.segments:
+            raise RuntimeError('没有已验证的轨迹，拒绝执行')
         for segment_index, segment in enumerate(self.segments):
             print(f'[阶段] {segment.name}', flush=True)
             if self.observer is not None:
@@ -258,6 +288,10 @@ class FaucetSimulation:
 
     def save(self, result):
         """成功或失败都保存 JSON 和 CSV，方便复查实际运行结果。"""
+        if self.perception_report is not None:
+            result['perception'] = dict(self.perception_report,
+                mode='snapshot_initialization', ground_truth_evaluation=True,
+                online_visual_feedback=False)
         if self.records:
             with (self.output / 'execution.csv').open('w', newline='', encoding='utf-8') as stream:
                 writer = csv.DictWriter(stream, fieldnames=list(self.records[0]))

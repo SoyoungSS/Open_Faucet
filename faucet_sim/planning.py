@@ -19,7 +19,7 @@ class Segment:
     target: np.ndarray
 
 
-def plan(config, robot, faucet):
+def plan(config, robot, faucet, initial_valve=None):
     """生成全部阶段；全部 IK、关节限位和速度检查成功后才允许执行。
 
     输入：场景配置和机器人/龙头运动学；输出：按顺序执行的 Segment 列表。
@@ -28,7 +28,11 @@ def plan(config, robot, faucet):
     current_q = np.deg2rad(config['home_right_deg'])
     if np.any(current_q < robot.lower) or np.any(current_q > robot.upper):
         raise ValueError('home_right_deg 超出机器人关节限位')
-    current_valve = np.zeros(2)
+    current_valve = np.zeros(2) if initial_valve is None else np.asarray(initial_valve, dtype=float).copy()
+    if (current_valve.shape != (2,) or not np.isfinite(current_valve).all()
+            or np.any(current_valve < np.deg2rad([-45, 0]))
+            or np.any(current_valve > np.deg2rad([45, 35]))):
+        raise ValueError('初始阀角超出关节限位')
     finger_open, finger_closed = np.deg2rad([config['finger_open_deg'], config['finger_closed_deg']])
     finger = finger_open
 
@@ -85,7 +89,7 @@ def plan(config, robot, faucet):
         segments.append(Segment(name, kind, times, q, valves, fingers, targets))
         current_q, current_valve, finger = q[-1], valves[-1], float(fingers[-1])
 
-    grasp = faucet.target(0., 0.)
+    grasp = faucet.target(*current_valve)
     pregrasp = grasp.copy()
     pregrasp[:3, 3] += config['pregrasp_distance'] * grasp[:3, 2]
     q_pre = robot.solve(pregrasp, current_q, restarts=True)

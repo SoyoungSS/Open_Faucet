@@ -106,6 +106,10 @@ class FaucetKinematics:
         # 默认将 +Y 对齐把手 -Z（上下夹），-Z 对齐把手 -Y（沿把手轴向接近）。
         self.handle_to_tcp = pose(config['grasp_in_handle'], Rotation.from_euler(
             'xyz', config['gripper_rpy_in_handle_deg'], degrees=True).as_matrix())
+        self.nominal_handle_to_tcp = self.handle_to_tcp.copy()
+        self.visual_clearance = float(config.get('visual_grasp_clearance_m', .001))
+        if not np.isfinite(self.visual_clearance) or not 0 <= self.visual_clearance <= .005:
+            raise ValueError('visual_grasp_clearance_m 必须在 [0,0.005] 米内')
 
     def handle(self, yaw, lift):
         """输入调温/抬升角（弧度），输出把手世界位姿。"""

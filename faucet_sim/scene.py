@@ -96,5 +96,7 @@ def build_scene(config, destination):
                         material, materialPurpose='physics')
     from .collision import configure_grasp_colliders
     configure_grasp_colliders(stage)
+    from .camera import create_head_camera
+    create_head_camera(stage, config)
     stage.GetRootLayer().Save()
     return stage
