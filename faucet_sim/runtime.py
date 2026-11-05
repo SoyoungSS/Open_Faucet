@@ -101,14 +101,36 @@ class FaucetSimulation:
         return (self.robot.get_joint_positions(self.right_indices),
                 self.valve.get_joint_positions(self.valve_indices))
 
+    def wait_for_play(self):
+        """暂停时只刷新界面，保留当前轨迹采样；Stop 不等同于可恢复暂停。"""
+        announced = False
+        while True:
+            if not self.app.is_running():
+                raise RuntimeError('用户关闭了仿真窗口，流程提前结束')
+            if self.world.is_stopped():
+                raise RuntimeError('用户停止了仿真；中途挂起请使用 Pause，恢复请使用 Play')
+            if self.world.is_playing():
+                if announced:
+                    print('[仿真] 已恢复，从暂停处继续', flush=True)
+                return
+            if not announced:
+                print('[仿真] 已暂停，点击 Play 继续', flush=True)
+                announced = True
+            self.world.render()
+            time.sleep(.01)
+
     def step(self):
-        """发送机器人位置目标并前进一个物理步；可视化每三步刷新一次。"""
-        if not self.app.is_running():
-            raise RuntimeError('用户关闭了仿真窗口，流程提前结束')
-        self.robot.apply_action(ArticulationAction(joint_positions=self.command))
-        start = time.monotonic()
-        self.contacts.begin_step()
-        self.world.step(render=(self.step_count % 3 == 0))
+        """仅在物理实际前进后消费一个采样；暂停期间不计时、不采集接触。"""
+        while True:
+            self.wait_for_play()
+            self.robot.apply_action(ArticulationAction(joint_positions=self.command))
+            start = time.monotonic()
+            self.contacts.begin_step()
+            before = self.world.current_time_step_index
+            self.world.step(render=(self.step_count % 3 == 0))
+            # 界面刷新可能恰好处理了 Pause；没有物理步就等待恢复并重试同一目标。
+            if self.world.current_time_step_index > before:
+                break
         self.contacts.sample()
         self.step_count += 1
         self.sim_time += self.config['physics_dt']
@@ -116,6 +138,8 @@ class FaucetSimulation:
             self.observer.after_step(self)
         if self.realtime:
             time.sleep(max(0., self.config['physics_dt'] - (time.monotonic() - start)))
+        # 若暂停发生在已经完成物理步的渲染帧，先等待，避免推进到下一阶段验收。
+        self.wait_for_play()
 
     def record(self, segment, index):
         """记录实际关节、TCP 跟踪误差及目标阀角；实际值来自 PhysX。"""
